@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import joblib
 import os
+import pydeck as pdk  # Library untuk peta interaktif dengan hover/tooltip
 
 # 1. SETTING HALAMAN STREAMLIT
 st.set_page_config(page_title="Dashboard Analisis Bank Sampah", layout="wide")
@@ -15,8 +16,16 @@ def load_base_data():
     df_mentah = pd.read_csv('bank_sampah.csv')
     X_numeric = joblib.load('data_cluster_wilayah.pkl')
     
-    # Map cluster dari X_numeric ke df_mentah menggunakan nama kelurahan
-    df_mentah['Cluster'] = df_mentah['bps_desa_kelurahan'].map(X_numeric['Cluster'])
+    # Map cluster angka dari X_numeric ke df_mentah menggunakan nama kelurahan
+    df_mentah['Cluster_Angka'] = df_mentah['bps_desa_kelurahan'].map(X_numeric['Cluster'])
+    
+    # Mapping Kategori Cluster Baru untuk Tabel & Tooltip Map
+    nama_kategori = {
+        0: 'Wilayah Berkembang',
+        1: 'Wilayah Rintisan',
+        2: 'Wilayah Mandiri'
+    }
+    df_mentah['Cluster'] = df_mentah['Cluster_Angka'].map(nama_kategori)
     
     # Koordinat GPS Asli Wilayah Kelurahan di Cibeunying Kidul, Bandung
     koordinat_desa = {
@@ -31,9 +40,13 @@ def load_base_data():
     df_mentah['latitude'] = df_mentah['bps_desa_kelurahan'].map(lambda x: koordinat_desa.get(x, [-6.9175, 107.6191])[0])
     df_mentah['longitude'] = df_mentah['bps_desa_kelurahan'].map(lambda x: koordinat_desa.get(x, [-6.9175, 107.6191])[1])
     
-    # Set warna hex unik untuk st.map
-    warna_cluster = {0: '#FF4B4B', 1: '#00E676', 2: '#29B6F6'}
-    df_mentah['warna'] = df_mentah['Cluster'].map(warna_cluster)
+    # Set warna RGB khusus untuk Pydeck Map [Red, Green, Blue, Alpha]
+    warna_rgb = {
+        0: [255, 75, 75, 200],   # Merah untuk Wilayah Berkembang
+        1: [0, 230, 118, 200],   # Hijau untuk Wilayah Rintisan
+        2: [41, 182, 246, 200]   # Biru untuk Wilayah Mandiri
+    }
+    df_mentah['warna_rgb'] = df_mentah['Cluster_Angka'].map(warna_rgb)
     
     return df_mentah, X_numeric
 
@@ -59,9 +72,9 @@ try:
             pilihan_unit = st.selectbox("Pilih Nama Unit Bank Sampah:", ["Semua Unit"] + list(unit_tersedia))
             
             st.info("💡 **Legenda Warna Titik Peta:**\n"
-                    "- 🔴 **Cluster 0: Wilayah Berkembang**\n"
-                    "- 🟢 **Cluster 1: Wilayah Rintisan**\n"
-                    "- 🔵 **Cluster 2: Wilayah Mandiri**")
+                    "- 🔴 **Wilayah Berkembang**\n"
+                    "- 🟢 **Wilayah Rintisan**\n"
+                    "- 🔵 **Wilayah Mandiri**")
             
         # Terapkan filter data
         df_filtered = df.copy()
@@ -71,10 +84,36 @@ try:
             df_filtered = df_filtered[df_filtered['nama_unit_bank_sampah'] == pilihan_unit]
 
         with col_peta:
-            # Menampilkan peta interaktif asli wilayah bandung
-            st.map(df_filtered, latitude='latitude', longitude='longitude', color='warna', size=50)
+            # MEMBUAT PETA INTERAKTIF DENGAN KUSTOMISASI HOVER TOOLTIP MENGGUNAKAN PYDECK
+            layer = pdk.Layer(
+                "ScatterplotLayer",
+                data=df_filtered,
+                get_position="[longitude, latitude]",
+                get_color="warna_rgb",
+                get_radius=60,  # Ukuran lingkaran di peta
+                pickable=True,  # Mengizinkan titik untuk merespon sentuhan kursor (hover)
+            )
+            
+            # Setting default pusat pandangan peta ke arah Kecamatan Cibeunying Kidul
+            view_state = pdk.ViewState(
+                latitude=-6.897,
+                longitude=107.644,
+                zoom=13,
+                pitch=0
+            )
+            
+            # Tampilkan peta Pydeck dengan format text tooltip hanya menampilkan Kategori Cluster
+            st.pydeck_chart(pdk.Deck(
+                layers=[layer],
+                initial_view_state=view_state,
+                tooltip={
+                    "html": "<b>{Cluster}</b>",  # Hanya menampilkan teks kategori cluster saja saat di-hover
+                    "style": {"backgroundColor": "black", "color": "white", "font-family": "Arial"}
+                }
+            ))
 
         st.write("### 📋 Tabel Hasil Pemetaan")
+        # Kolom Cluster menampilkan text kategori konseptual secara penuh
         st.dataframe(df_filtered[['bps_desa_kelurahan', 'nama_unit_bank_sampah', 'Cluster']].reset_index(drop=True), use_container_width=True)
 
     # --- TAB 2: EVALUASI MODEL DARI JUPYTER ---
