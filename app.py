@@ -1,84 +1,100 @@
 import streamlit as st
 import pandas as pd
-from sklearn.cluster import KMeans
+import joblib
+import os
 
 # 1. SETTING HALAMAN STREAMLIT
-st.set_page_config(page_title="Dashboard Cluster Bank Sampah", layout="wide")
+st.set_page_config(page_title="Dashboard Analisis Bank Sampah", layout="wide")
 
-st.title("🎯 Dashboard Pencarian Kelompok Cluster Bank Sampah")
-st.write("Aplikasi ini otomatis melakukan clustering pada tingkat Kelurahan/Desa, "
-         "lalu memetakan hasilnya kembali ke setiap unit Bank Sampah.")
+st.title("🎯 Dashboard Evaluasi Model & Sebaran Cluster Bank Sampah")
+st.write("Aplikasi web ini membaca model K-Means yang telah dilatih (.pkl) beserta visualisasinya.")
 
-# 2. FUNGSI UNTUK MEMBACA & MEMPROSES DATA SEARA OTOMATIS
+# 2. LOAD DATA DARI JUPYTER NOTEBOOK
 @st.cache_data
-def load_and_cluster_data():
-    # Membaca dataset asli yang kamu upload
-    df = pd.read_csv('bank_sampah.csv')
+def load_base_data():
+    df_mentah = pd.read_csv('bank_sampah.csv')
+    X_numeric = joblib.load('data_cluster_wilayah.pkl')
     
-    # Membuat dataframe hasil agregasi (X_numeric) seperti di Notebook-mu
-    X_numeric = df.groupby('bps_desa_kelurahan').agg(
-        total_unit=('id', 'count'),
-        min_year=('tahun', 'min'),
-        max_year=('tahun', 'max')
-    )
-    # Menghitung durasi operasional
-    X_numeric['durasi_tahun'] = X_numeric['max_year'] - X_numeric['min_year'] + 1
+    # Map cluster dari X_numeric ke df_mentah menggunakan nama kelurahan
+    df_mentah['Cluster'] = df_mentah['bps_desa_kelurahan'].map(X_numeric['Cluster'])
     
-    # Menjalankan K-Means Clustering (sesuai jumlah cluster = 3)
-    kmeans = KMeans(n_clusters=3, random_state=42)
-    X_numeric['Cluster'] = kmeans.fit_predict(X_numeric[['total_unit', 'durasi_tahun']])
+    # Koordinat GPS Asli Wilayah Kelurahan di Cibeunying Kidul, Bandung
+    koordinat_desa = {
+        'CICADAS': [-6.9061, 107.6436],
+        'CIKUTRA': [-6.8974, 107.6369],
+        'PADASUKA': [-6.8994, 107.6472],
+        'PASIRLAYUNG': [-6.8911, 107.6534],
+        'SUKAMAJU': [-6.8952, 107.6415],
+        'SUKAPADA': [-6.8931, 107.6461]
+    }
     
-    # MEMAKAI TRICK MAP KAMU: Gabungkan kembali ke dataframe asli (df)
-    df['Cluster'] = df['bps_desa_kelurahan'].map(X_numeric['Cluster'])
+    df_mentah['latitude'] = df_mentah['bps_desa_kelurahan'].map(lambda x: koordinat_desa.get(x, [-6.9175, 107.6191])[0])
+    df_mentah['longitude'] = df_mentah['bps_desa_kelurahan'].map(lambda x: koordinat_desa.get(x, [-6.9175, 107.6191])[1])
     
-    return df, X_numeric
+    # Set warna hex unik untuk st.map
+    warna_cluster = {0: '#FF4B4B', 1: '#00E676', 2: '#29B6F6'}
+    df_mentah['warna'] = df_mentah['Cluster'].map(warna_cluster)
+    
+    return df_mentah, X_numeric
 
-# Menjalankan fungsi pemrosesan data
 try:
-    df, X_numeric = load_and_cluster_data()
+    df, X_numeric = load_base_data()
 
-    # 3. FITUR INTERAKTIF: PENCARIAN & FILTER
-    st.subheader("🔍 Cari Data & Filter Wilayah")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        pilihan_desa = st.selectbox(
-            "Pilih Kelurahan / Desa:",
-            ["Semua Desa"] + list(df['bps_desa_kelurahan'].unique())
-        )
+    # TAB MENU UTAMA
+    tab1, tab2 = st.tabs(["🗺️ Peta & Filter Data", "📊 Evaluasi Model (Elbow & 2D)"])
+
+    # --- TAB 1: PETA DAN FILTER DATA ---
+    with tab1:
+        st.subheader("Sebaran Geografis Bank Sampah")
+        col_input, col_peta = st.columns([1, 2])
         
-    with col2:
-        # Menyesuaikan pilihan nama unit berdasarkan desa yang dipilih
-        if pilihan_desa != "Semua Desa":
-            unit_tersedia = df[df['bps_desa_kelurahan'] == pilihan_desa]['nama_unit_bank_sampah'].unique()
-        else:
-            unit_tersedia = df['nama_unit_bank_sampah'].unique()
+        with col_input:
+            pilihan_desa = st.selectbox("Pilih Kelurahan / Desa:", ["Semua Desa"] + list(df['bps_desa_kelurahan'].unique()))
             
-        pilihan_unit = st.selectbox(
-            "Pilih Nama Unit Bank Sampah:",
-            ["Semua Unit"] + list(unit_tersedia)
-        )
+            if pilihan_desa != "Semua Desa":
+                unit_tersedia = df[df['bps_desa_kelurahan'] == pilihan_desa]['nama_unit_bank_sampah'].unique()
+            else:
+                unit_tersedia = df['nama_unit_bank_sampah'].unique()
+                
+            pilihan_unit = st.selectbox("Pilih Nama Unit Bank Sampah:", ["Semua Unit"] + list(unit_tersedia))
+            
+            st.info("💡 **Legenda Warna Titik Peta:**\n"
+                    "- 🔴 **Cluster 0**\n"
+                    "- 🟢 **Cluster 1**\n"
+                    "- 🔵 **Cluster 2**")
+            
+        # Terapkan filter data
+        df_filtered = df.copy()
+        if pilihan_desa != "Semua Desa":
+            df_filtered = df_filtered[df_filtered['bps_desa_kelurahan'] == pilihan_desa]
+        if pilihan_unit != "Semua Unit":
+            df_filtered = df_filtered[df_filtered['nama_unit_bank_sampah'] == pilihan_unit]
 
-    # Memfilter dataframe berdasarkan input dari user
-    df_hasil = df.copy()
-    if pilihan_desa != "Semua Desa":
-        df_hasil = df_hasil[df_hasil['bps_desa_kelurahan'] == pilihan_desa]
-    if pilihan_unit != "Semua Unit":
-        df_hasil = df_hasil[df_hasil['nama_unit_bank_sampah'] == pilihan_unit]
+        with col_peta:
+            # Menampilkan peta interaktif asli wilayah bandung
+            st.map(df_filtered, latitude='latitude', longitude='longitude', color='warna', size=50)
 
-    # 4. TAMPILKAN TABEL HASIL MAPPING (Sesuai Request Kamu)
-    st.subheader("📋 Hasil Pemetaan Cluster Bank Sampah")
-    
-    # Mengambil kolom sesuai contoh yang kamu inginkan
-    tabel_tampil = df_hasil[['bps_desa_kelurahan', 'nama_unit_bank_sampah', 'Cluster']].reset_index(drop=True)
-    
-    st.dataframe(tabel_tampil, use_container_width=True)
+        st.write("### 📋 Tabel Hasil Pemetaan")
+        st.dataframe(df_filtered[['bps_desa_kelurahan', 'nama_unit_bank_sampah', 'Cluster']].reset_index(drop=True), use_container_width=True)
 
-    # 5. INFORMASI TAMBAHAN: KARAKTERISTIK TIAP CLUSTER DI WILAYAH
-    st.write("---")
-    st.subheader("📊 Tabel Referensi Nilai Agregasi Wilayah (X_numeric)")
-    st.dataframe(X_numeric[['total_unit', 'durasi_tahun', 'Cluster']], use_container_width=True)
+    # --- TAB 2: EVALUASI MODEL DARI JUPYTER ---
+    with tab2:
+        st.subheader("Hasil Evaluasi dan Visualisasi dari Jupyter Notebook")
+        c1, c2 = st.columns(2)
+        
+        with c1:
+            st.write("**1. Analisis Penentuan Jumlah Cluster Optimal**")
+            if os.path.exists('elbow_plot.png'):
+                st.image('elbow_plot.png', caption='Grafik Elbow Method (Inertia berkurang drastis di k=3)')
+            else:
+                st.warning("File elbow_plot.png tidak ditemukan. Jalankan kode di Jupyter dulu!")
+                
+        with c2:
+            st.write("**2. Visualisasi Pembagian Cluster Data Penduduk**")
+            if os.path.exists('kmeans_2d_plot.png'):
+                st.image('kmeans_2d_plot.png', caption='Peta Sebaran Cluster Berdasarkan Total Unit & Durasi')
+            else:
+                st.warning("File kmeans_2d_plot.png tidak ditemukan. Jalankan kode di Jupyter dulu!")
 
 except FileNotFoundError:
-    st.error("File `bank_sampah.csv` tidak ditemukan! Pastikan file CSV tersebut diletakkan di dalam folder yang sama dengan file `app.py` ini.")
+    st.error("Pastikan file `bank_sampah.csv` dan file `.pkl` berada dalam satu folder yang sama dengan file `app.py` ini.")
