@@ -59,9 +59,9 @@ try:
             pilihan_unit = st.selectbox("Pilih Nama Unit Bank Sampah:", ["Semua Unit"] + list(unit_tersedia))
             
             st.info("💡 **Legenda Warna Titik Peta:**\n"
-                    "- 🔴 **Cluster 0**\n"
-                    "- 🟢 **Cluster 1**\n"
-                    "- 🔵 **Cluster 2**")
+                    "- 🔴 **Cluster 0: Wilayah Berkembang**\n"
+                    "- 🟢 **Cluster 1: Wilayah Rintisan**\n"
+                    "- 🔵 **Cluster 2: Wilayah Mandiri**")
             
         # Terapkan filter data
         df_filtered = df.copy()
