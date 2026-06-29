@@ -119,7 +119,7 @@ try:
     # --- TAB 2: EVALUASI MODEL DARI JUPYTER ---
     with tab2:
         st.subheader("Hasil Evaluasi dan Visualisasi dari Jupyter Notebook")
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         
         with c1:
             st.write("**1. Analisis Penentuan Jumlah Cluster Optimal**")
@@ -134,6 +134,14 @@ try:
                 st.image('kmeans_2d_plot.png', caption='Peta Sebaran Cluster Berdasarkan Total Unit & Durasi')
             else:
                 st.warning("File kmeans_2d_plot.png tidak ditemukan. Jalankan kode di Jupyter dulu!")
+
+        
+        with c3:
+            st.write("**3. Persebaran BPS Tiap Desa/Kelurahan**")
+            if os.path.exists('persebaran_bank_sampah.png'):
+                st.image('persebaran_bank_sampah.png', caption='Persebaran BPS Tiap Desa/Kelurahan')
+            else:
+                st.warning("File persebaran_bank_sampah.png tidak ditemukan. Jalankan kode di Jupyter dulu!")
 
 except FileNotFoundError:
     st.error("Pastikan file `bank_sampah.csv` dan file `.pkl` berada dalam satu folder yang sama dengan file `app.py` ini.")
